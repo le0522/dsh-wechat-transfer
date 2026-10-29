@@ -45,8 +45,10 @@ dsh plugin --profile desktop add github:<GITHUB_OWNER>/dsh-wechat-transfer
 - **微信没开也没关系**：插件会自己启动 `Weixin.exe`（`HKCU\Software\Tencent\Weixin\InstallPath`，否则 `C:\Program Files\Tencent\Weixin\Weixin.exe`），然后点登录窗上的「进入微信」；只有出现二维码时才需要你拿手机扫一次（会明确返回 `login-qr`）。
 - 目标聊天能出现在左侧会话列表里（插件会自动滚动列表去找，最多 4 次）。
 - 系统有中文 OCR（Windows 自带 zh-Hans 识别器）。
+- **窗口大小随意**：📁 按钮、发送按钮和输入框是按窗口比例定位的，窗口和微信默认尺寸差太多时比例会飘。所以插件会在动手前先把微信窗口临时调成 1020×740（屏幕放不下就按屏幕收缩），发完再**精确还原成你原来的大小和位置**。你最大化、缩小、拖到副屏都不影响，日志里会写 `normalize-window` 和 `window put back to …`。
 
 > 插件只会**启动**微信，永远不会杀掉或关闭它。
+
 
 ## 校验是怎么做的
 

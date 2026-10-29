@@ -23,6 +23,22 @@ $OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $script:log = New-Object System.Collections.Generic.List[string]
 $script:stages = New-Object System.Collections.Generic.List[string]
+# set when this run resized the WeChat window, restored from the finally block
+$script:restoreRect = $null
+$script:restoreHandle = [IntPtr]::Zero
+
+function Restore-WeChatWindow {
+  if (-not $script:restoreRect) { return }
+  $saved = $script:restoreRect
+  $handle = $script:restoreHandle
+  $script:restoreRect = $null
+  try {
+    [void][Wx]::SetWindowPos($handle, [IntPtr]::Zero, $saved.x, $saved.y, $saved.w, $saved.h, 0x0004)
+    Add-Log "window put back to $($saved.w)x$($saved.h) at $($saved.x),$($saved.y)"
+  } catch {
+    Add-Log "window restore failed: $($_.Exception.Message)"
+  }
+}
 
 function Add-Log([string] $message) {
   $stamp = (Get-Date).ToString('HH:mm:ss.fff')
@@ -64,6 +80,7 @@ public class Wx {
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
@@ -654,6 +671,46 @@ try {
     exit 0
   }
 
+  # The 📁 button, the 发送 button and the composer only sit where this engine looks them up
+  # when the window is close to WeChat's default size (~1020x740). A maximised or heavily
+  # shrunk window breaks that, so resize it for this run and put it back at the end.
+  Enter-Stage 'normalize-window'
+  $script:restoreHandle = $handle
+  $targetW = 1020
+  $targetH = 740
+  $newX = [Math]::Max(0, $rect.Left)
+  $newY = [Math]::Max(0, $rect.Top)
+  try {
+    $vs = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    if ($vs.Width -gt 0 -and $vs.Height -gt 0) {
+      $targetW = [Math]::Max(880, [Math]::Min($targetW, $vs.Width - 80))
+      $targetH = [Math]::Max(620, [Math]::Min($targetH, $vs.Height - 80))
+      $newX = [Math]::Max($vs.Left, [Math]::Min($rect.Left, $vs.Left + $vs.Width - $targetW - 20))
+      $newY = [Math]::Max($vs.Top, [Math]::Min($rect.Top, $vs.Top + $vs.Height - $targetH - 20))
+    }
+  } catch {
+    Add-Log "screen metrics unavailable: $($_.Exception.Message)"
+  }
+  if ([Math]::Abs($width - $targetW) -gt 40 -or [Math]::Abs($height - $targetH) -gt 40) {
+    $script:restoreRect = @{ x = $rect.Left; y = $rect.Top; w = $width; h = $height }
+    Add-Log "window ${width}x${height} is off-layout, resizing to ${targetW}x${targetH} at $newX,$newY"
+    [void][Wx]::SetWindowPos($handle, [IntPtr]::Zero, $newX, $newY, $targetW, $targetH, 0x0004)
+    Start-Sleep -Milliseconds 700
+    $nowRect = New-Object Wx+RECT
+    [void][Wx]::GetWindowRect($handle, [ref] $nowRect)
+    $rect = $nowRect
+    $width = $nowRect.Right - $nowRect.Left
+    $height = $nowRect.Bottom - $nowRect.Top
+    Add-Log "window is now ${width}x${height}"
+  } else {
+    Add-Log "window ${width}x${height} already fits the layout this engine uses"
+  }
+  $result.window = [ordered]@{
+    hwnd = [int64]$handle; title = [Wx]::Title($handle); visible = [Wx]::IsWindowVisible($handle)
+    rect = [ordered]@{ x = $rect.Left; y = $rect.Top; width = $width; height = $height }
+    resized = [bool]$script:restoreRect
+  }
+
   Enter-Stage 'focus'
   $focused = [Wx]::Focus($handle)
   Add-Log "foreground=$focused"
@@ -916,4 +973,7 @@ try {
   $result.log = $script:log.ToArray()
   Write-Result $result
   exit 9
+} finally {
+  # never leave the user's WeChat window at the size this run forced on it
+  try { Restore-WeChatWindow } catch { }
 }
