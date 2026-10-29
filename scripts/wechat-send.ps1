@@ -407,7 +407,7 @@ function Get-NameKey([string] $value) {
 }
 
 function Get-SizeToken([long] $bytes) {
-  # WeChat labels small files in bytes ("42B"), larger ones as "410K" / "1.2M" and anything
+  # WeChat labels small files in bytes ("42B"), larger ones as "340K" / "1.2M" and anything
   # past a megabyte as "1.2M", so the token has to follow the same three shapes
   if ($bytes -lt 1024) { return ('{0}B' -f $bytes) }
   if ($bytes -ge 1048576) { return ('{0:0.0}M' -f ($bytes / 1048576.0)) }
