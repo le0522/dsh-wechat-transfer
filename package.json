@@ -1,0 +1,49 @@
+{
+  "name": "dsh-wechat-transfer",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "DSH sidebar plugin and wechat_send_file tool that send local files to a WeChat chat (default: 文件传输助手 File Transfer Assistant) through the WeChat 4.x desktop app. Windows only.",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "wechat",
+    "weixin",
+    "file-transfer",
+    "windows"
+  ],
+  "license": "MIT",
+  "os": [
+    "win32"
+  ],
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "engines": {
+    "dsh": ">=0.2.0-rc.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "scripts",
+    "locale",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ]
+}

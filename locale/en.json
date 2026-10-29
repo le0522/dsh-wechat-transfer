@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "title": "WeChat Transfer",
+    "description": "Send files to WeChat (default: File Transfer Assistant)"
+  },
+  "panel": {
+    "title": "WeChat Transfer",
+    "subtitle": "Safe mode: the chat is verified before any paste",
+    "pathsLabel": "Files to send (one absolute path per line)",
+    "pathsPlaceholder": "C:\\Users\\me\\Documents\\report.pdf",
+    "chatLabel": "Target chat",
+    "chatDefault": "文件传输助手",
+    "autoSendLabel": "Click send after pasting",
+    "autoSendHint": "When off the files are only staged in the composer for you to review",
+    "send": "Send",
+    "refresh": "Refresh status",
+    "sending": "Working…",
+    "status": "Status",
+    "noScreenshot": "No screenshot yet",
+    "lastLog": "Log",
+    "ready": "Ready",
+    "wechatMissing": "WeChat is not running",
+    "hint": "The model can also call the wechat_send_file tool directly."
+  },
+  "status": {
+    "sent": "Sent",
+    "staged": "Staged in the composer (press send yourself)",
+    "chat-not-open": "The open chat is not the target chat, aborted before pasting",
+    "not-logged-in": "WeChat is not logged in",
+    "paste-not-verified": "The files did not appear in the composer",
+    "send-not-verified": "Staged, but the send could not be confirmed",
+    "ocr-unavailable": "System OCR is unavailable, aborted",
+    "error": "Error"
+  }
+}

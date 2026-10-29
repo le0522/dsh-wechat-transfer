@@ -1,0 +1,12 @@
+{
+  "$schema": "../schema/plugin.schema.json",
+  "id": "<GITHUB_OWNER>/dsh-wechat-transfer",
+  "name": "dsh-wechat-transfer",
+  "repository": "https://github.com/<GITHUB_OWNER>/dsh-wechat-transfer",
+  "category": "tools",
+  "description": {
+    "en": "Sends local files to a WeChat chat through the WeChat 4.x Windows desktop app: a left-sidebar panel, a wechat_send_file tool, and a send button on DSH deliverable cards. The target chat is verified with Windows OCR before anything is attached, and files are staged for review unless auto-send is on.",
+    "zh": "把本地文件通过 Windows 上的微信 4.x 桌面端发到指定聊天：左侧栏面板、wechat_send_file 工具，以及 DSH 产物卡片上的「发微信」按钮。附加文件前用 Windows OCR 校验当前聊天，默认只把文件放进输入框、由你确认后再发。"
+  },
+  "added": "2026-10-29"
+}

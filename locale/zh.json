@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "title": "微信传输助手",
+    "description": "把文件发到微信（默认「文件传输助手」）"
+  },
+  "panel": {
+    "title": "微信传输助手",
+    "subtitle": "安全模式：先核对聊天窗口，再粘贴文件",
+    "pathsLabel": "要发送的文件（每行一个完整路径）",
+    "pathsPlaceholder": "C:\\Users\\me\\Documents\\报告.pdf",
+    "chatLabel": "目标聊天",
+    "chatDefault": "文件传输助手",
+    "autoSendLabel": "粘贴后自动点击发送",
+    "autoSendHint": "关闭时只把文件放进聊天输入框，由你确认后发送",
+    "send": "发送",
+    "refresh": "刷新状态",
+    "sending": "正在处理…",
+    "status": "状态",
+    "noScreenshot": "还没有截图",
+    "lastLog": "执行日志",
+    "ready": "就绪",
+    "wechatMissing": "微信未运行",
+    "hint": "模型也可以直接调用工具 wechat_send_file 发送文件。"
+  },
+  "status": {
+    "sent": "已发送",
+    "staged": "已放入输入框（等待你点发送）",
+    "chat-not-open": "当前聊天不是目标聊天，已中止（未粘贴）",
+    "not-logged-in": "微信还没登录",
+    "paste-not-verified": "文件没有出现在输入框",
+    "send-not-verified": "已放入输入框，但没能确认发送",
+    "ocr-unavailable": "系统 OCR 不可用，已中止",
+    "error": "出错"
+  }
+}
