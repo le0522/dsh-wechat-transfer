@@ -29,6 +29,7 @@ dsh plugin --profile desktop add github:<GITHUB_OWNER>/dsh-wechat-transfer
 - 左侧栏出现一个 **微信传输** 图标，点开是面板：填写文件路径、目标聊天、是否自动发送，还有一个 **登录微信** 按钮。
 - **在手机上取文件**：手机上远程用 DSH 跑出的产物，点一下「发微信」（或让模型调工具），文件就出现在手机微信的「文件传输助手」里，下载即可存进手机——这是它最实用的场景之一。
 - **产物一键发送**：聊天里每个 `present` 交付文件卡片旁边多出一个「发微信」按钮，点一下就把该文件发到「文件传输助手」，成功/失败直接显示在按钮上。
+- **关闭微信**：面板上的「关闭微信」按钮会先给微信发关闭请求（它只会缩到托盘），确认还在跑就直接结束 `Weixin.exe` 进程，返回 `closed-wechat`；微信本来就没开也算成功。
 - **登录**：微信停在登录窗口（头像 + 「进入微信」）时，插件会用 OCR 找到这个按钮并点击，等主窗口出现后再继续；需要手机扫码时明确返回「需要扫码」，不会瞎点。
 - **微信没运行也能发**：先启动微信、自动登录，再走完整发送流程（实测从 0 个微信进程到文件进聊天约 20 秒）。
 - 同时注册模型可调用的工具 `wechat_send_file`，你可以直接说「把这个文件发到微信文件传输助手」。
@@ -107,6 +108,7 @@ dsh plugin --profile desktop add github:<GITHUB_OWNER>/dsh-wechat-transfer
 | GET | `/dsh-wechat-transfer/status` | 引擎是否就绪、上次结果、截图年龄 |
 | POST | `/dsh-wechat-transfer/send` | `{paths, chat?, autoSend?}` 发送文件 |
 | POST | `/dsh-wechat-transfer/login` | 处理登录窗口，返回 `logged-in` / `login-qr` |
+| POST | `/dsh-wechat-transfer/close` | 关闭微信，返回 `closed-wechat` / `close-failed` |
 | POST | `/dsh-wechat-transfer/resolve` | `{sessionId, seq, index}` → 交付卡片的绝对路径 |
 | GET | `/dsh-wechat-transfer/screenshot` | 最近一次校验截图（PNG） |
 
@@ -122,7 +124,7 @@ dsh plugin --profile desktop add github:<GITHUB_OWNER>/dsh-wechat-transfer
 ## 结构
 
 ```
-index.js             宿主侧：HTTP 路由（含 resolve/login）+ wechat_send_file 工具
+index.js             宿主侧：HTTP 路由（含 resolve/login/close）+ wechat_send_file 工具
 client.js            Web 侧：左侧栏图标 + 面板 + 交付卡片上的「发微信」按钮
 scripts/wechat-send.ps1   PowerShell 引擎（截屏、OCR、输入注入、剪贴板、登录）
 cordis.patch.yml     把宿主插件插入 profile

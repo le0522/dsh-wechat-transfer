@@ -15,7 +15,8 @@ param(
   [string] $ScreenshotOut,
   [string] $LogOut,
   [int] $WindowWaitSeconds = 15,
-  [switch] $LoginOnly
+  [switch] $LoginOnly,
+  [switch] $CloseOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -614,6 +615,7 @@ try {
     if ($jobJson.screenshot) { $ScreenshotOut = $jobJson.screenshot }
     if ($jobJson.log) { $LogOut = $jobJson.log }
     if ($jobJson.PSObject.Properties.Name -contains 'loginOnly') { $LoginOnly = [bool]$jobJson.loginOnly }
+    if ($jobJson.PSObject.Properties.Name -contains 'closeOnly') { $CloseOnly = [bool]$jobJson.closeOnly }
   }
   if (-not $Chat) {
     # 文件传输助手, built from code points so file encoding can never corrupt it
@@ -621,6 +623,45 @@ try {
   }
   $result.chat = $Chat
   $result.autoSend = [bool]$AutoSend
+
+  # Quitting has nothing to do with files, the chat or the window layout, so it short-circuits
+  # everything below. A close request alone only hides WeChat to the tray, so the processes are
+  # stopped afterwards - that is the only reliable way to really quit WeChat 4.
+  if ($CloseOnly) {
+    Enter-Stage 'close-wechat'
+    $procs = @(Get-Process -Name Weixin -ErrorAction SilentlyContinue)
+    if ($procs.Count -eq 0) {
+      Add-Log 'WeChat is not running, nothing to close'
+      $result.stage = 'closed-wechat'
+      $result.ok = $true
+      Write-Result $result
+      exit 0
+    }
+    Add-Log "weixin processes before: $($procs.Count)"
+    foreach ($proc in $procs) {
+      try { [void]$proc.CloseMainWindow() } catch { }
+    }
+    Start-Sleep -Milliseconds 1200
+    $after = @(Get-Process -Name Weixin -ErrorAction SilentlyContinue)
+    if ($after.Count -eq 0) {
+      Add-Log 'WeChat quit after the close request'
+    } else {
+      Add-Log "still $($after.Count) process(es) (WeChat hides to the tray), stopping them"
+      $after | Stop-Process -Force -ErrorAction SilentlyContinue
+      Start-Sleep -Milliseconds 1500
+      $final = @(Get-Process -Name Weixin -ErrorAction SilentlyContinue)
+      if ($final.Count -gt 0) {
+        Add-Log "processes still alive: $($final.Count)"
+        $result.stage = 'close-failed'
+        throw "WeChat is still running ($($final.Count) process(es)) - it may be restarting itself"
+      }
+    }
+    Add-Log 'weixin processes after: 0'
+    $result.stage = 'closed-wechat'
+    $result.ok = $true
+    Write-Result $result
+    exit 0
+  }
 
   if (-not $LoginOnly) {
     Enter-Stage 'resolve-paths'

@@ -157,6 +157,11 @@ window.__ModuleLoader__.load({
       'logged-in': '微信已登录',
       'login-required': '没能自动登录，请手动点「进入微信」',
       'login-qr': '需要手机扫码登录',
+      'logged-in': '微信已登录',
+      'closed-wechat': '微信已关闭',
+      'close-failed': '没能关闭微信，进程还在',
+      'chat-ambiguous': '会话列表里有多个同名聊天，请自己点开正确的那一个',
+      'unreachable': '够不到电脑上的插件服务（远程网关没转发这条路由）',
       'not-logged-in': '微信还没登录',
       'input-blocked': '微信没响应鼠标操作，请退出微信（托盘右键退出）后重新打开',
       'paste-not-verified': '文件没有出现在输入框',
@@ -362,6 +367,27 @@ window.__ModuleLoader__.load({
               },
             },
             '登录微信',
+          ),
+          h(
+            'button',
+            {
+              style: styles.buttonGhost,
+              disabled: busy,
+              title: '退出微信（先发关闭请求，仍在托盘里就直接结束进程）',
+              onClick: async () => {
+                setBusy(true)
+                try {
+                  const data = await callApi('/close', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+                  setResult(data)
+                  setShotKey(Date.now())
+                } catch (error) {
+                  setResult({ ok: false, stage: 'error', error: String(error?.message ?? error) })
+                } finally {
+                  setBusy(false)
+                }
+              },
+            },
+            '关闭微信',
           ),
           h(
             'button',

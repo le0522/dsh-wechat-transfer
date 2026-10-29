@@ -145,6 +145,7 @@ function runEngine(options) {
     paths: options.paths ?? [],
     autoSend: Boolean(options.autoSend),
     loginOnly: Boolean(options.loginOnly),
+    closeOnly: Boolean(options.closeOnly),
     screenshot: SCREENSHOT_PATH,
     log: LOG_PATH,
   }
@@ -217,6 +218,10 @@ function describe(result) {
       return `没有发送：会话列表里有多个叫「${chat}」的聊天，OCR 分不出是哪一个。请你自己在微信里点开正确的那一个，再重试。`
     case 'logged-in':
       return '微信已登录，可以发送文件了。'
+    case 'closed-wechat':
+      return '微信已关闭（进程已全部退出）。'
+    case 'close-failed':
+      return '没能关闭微信：进程还在运行，可能它正在自己重启，稍后再试一次。'
     case 'login-required':
       return '没能自动登录：微信登录窗口没有出现「进入微信」按钮，请手动点一下或扫码登录。'
     case 'login-qr':
@@ -307,6 +312,26 @@ export function apply(ctx) {
     }
   }
 
+  const handleClose = async () => {
+    if (state.running) {
+      return { ok: false, stage: 'busy', error: 'another transfer is still running' }
+    }
+    if (!existsSync(SCRIPT_PATH)) {
+      return { ok: false, stage: 'engine-missing', error: `engine script missing: ${SCRIPT_PATH}` }
+    }
+    state.running = true
+    state.startedAt = Date.now()
+    try {
+      const result = await runEngine({ paths: [], closeOnly: true })
+      state.lastResult = { ...result, at: Date.now(), seq: ++state.seq }
+      state.finishedAt = Date.now()
+      log('close finished', result.stage)
+      return result
+    } finally {
+      state.running = false
+    }
+  }
+
   /**
    * Turn deliverable-card coordinates (`/api/present.open?sessionId=&seq=&index=`) into the
    * absolute Host path the engine needs. Mirrors what the deliverables host half does.
@@ -358,6 +383,26 @@ export function apply(ctx) {
         },
       }),
     'dsh-wechat-transfer/login',
+  )
+
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: `${ROUTE_PREFIX}/close`,
+        handler: async (req, res) => {
+          if (preflight(req, res)) return
+          if (req.method !== 'POST') return send(res, 405, { error: 'method-not-allowed' }, req)
+          if (!sameOrigin(req)) return send(res, 403, { error: 'origin-rejected' }, req)
+          try {
+            const result = await handleClose()
+            send(res, 200, result, req)
+          } catch (error) {
+            send(res, 400, { ok: false, stage: 'error', error: String(error?.message ?? error) }, req)
+          }
+        },
+      }),
+    'dsh-wechat-transfer/close',
   )
 
   ctx.effect(

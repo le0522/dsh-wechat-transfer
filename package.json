@@ -1,6 +1,6 @@
 {
   "name": "dsh-wechat-transfer",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "type": "module",
   "description": "DSH sidebar plugin and wechat_send_file tool that send local files to a WeChat chat (default: 文件传输助手 File Transfer Assistant) through the WeChat 4.x desktop app. Handy when DSH is driven from a phone: files produced on the desktop land in the phone's WeChat and can be saved there. Windows only.",
   "keywords": [
