@@ -213,6 +213,8 @@ function describe(result) {
       return `已把 ${files} 放进「${chat}」的输入框（没有自动发送），请你在微信里确认后点发送。`
     case 'chat-not-open':
       return `没有发送：当前微信打开的聊天不是「${chat}」。请在微信里点开该聊天，然后重试。`
+    case 'chat-ambiguous':
+      return `没有发送：会话列表里有多个叫「${chat}」的聊天，OCR 分不出是哪一个。请你自己在微信里点开正确的那一个，再重试。`
     case 'logged-in':
       return '微信已登录，可以发送文件了。'
     case 'login-required':

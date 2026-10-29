@@ -153,6 +153,7 @@ window.__ModuleLoader__.load({
       sent: '已发送，已确认出现在聊天里',
       staged: '已放入输入框，等待你点发送',
       'chat-not-open': '当前聊天不是目标聊天，已中止（未粘贴）',
+      'chat-ambiguous': '有多个同名聊天，分不清是哪一个，请自己点开正确的那一个',
       'logged-in': '微信已登录',
       'login-required': '没能自动登录，请手动点「进入微信」',
       'login-qr': '需要手机扫码登录',

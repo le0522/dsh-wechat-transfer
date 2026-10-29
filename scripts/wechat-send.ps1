@@ -744,7 +744,25 @@ try {
             ($_.y -gt ($height * 0.08))
           })
         if ($candidates.Count -gt 0) {
-          $target = $candidates[0]
+          # Two rows with the same display name cannot be told apart by OCR, and the header
+          # check after the click cannot help either - refuse instead of guessing.
+          $rows = @()
+          foreach ($candidate in $candidates) {
+            $sameRow = $false
+            foreach ($row in $rows) {
+              if ([Math]::Abs($row.y - $candidate.y) -lt 24) { $sameRow = $true; break }
+            }
+            if (-not $sameRow) { $rows += $candidate }
+          }
+          if ($rows.Count -gt 1) {
+            $result.stage = 'chat-ambiguous'
+            Save-WindowShot $handle $ScreenshotOut
+            $result.screenshot = $ScreenshotOut
+            $result.error = "$($rows.Count) conversations in the list are called '$Chat' - OCR cannot tell them apart, open the right one yourself and retry"
+            Write-Result $result
+            exit 13
+          }
+          $target = $rows[0]
           $tx = $rect.Left + [int]($target.x + ($target.w / 2))
           $ty = $rect.Top + [int]($target.y + ($target.h / 2))
           Add-Log "clicking chat row at $tx,$ty ('$($target.text)')"
