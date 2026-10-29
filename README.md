@@ -5,8 +5,7 @@
 ## 安装
 
 ```powershell
-
-& 'dsh.cmd' plugin --profile desktop add github:<GITHUB_OWNER>/dsh-wechat-transfer
+dsh plugin --profile desktop add github:<GITHUB_OWNER>/dsh-wechat-transfer
 ```
 
 装完重启 DSH，左侧栏出现「微信传输」。只能装在 Windows（依赖 Windows PowerShell 5.1 与中文 OCR 语言包）。
