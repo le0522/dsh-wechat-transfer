@@ -184,8 +184,8 @@ npm publish --access public
 发完验证安装：
 
 ```powershell
-
-& 'dsh.cmd' plugin --profile desktop add dsh-wechat-transfer
+dsh plugin --profile desktop add dsh-wechat-transfer
+dsh plugin --profile desktop add dsh-wechat-transfer
 ```
 
 装完重启 DSH，看左侧栏有没有「微信传输」。
