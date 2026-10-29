@@ -461,7 +461,7 @@ function Test-GridChanged($before, $after, [int] $threshold = 14, [double] $minR
 function Get-PaneGrid([IntPtr] $handle) {
   $shot = Get-WindowBitmap $handle
   try {
-    return Get-RegionGrid $shot.bitmap 0.44 0.10 0.55 0.50
+    return Get-RegionGrid $shot.bitmap 0.44 0.10 0.55 0.58
   } finally {
     $shot.bitmap.Dispose()
   }
@@ -702,6 +702,10 @@ try {
     $width = $nowRect.Right - $nowRect.Left
     $height = $nowRect.Bottom - $nowRect.Top
     Add-Log "window is now ${width}x${height}"
+    # give WeChat time to relayout: the first capture after a resize can still show the old
+    # frame, which made the header OCR read message content on maximised windows
+    Start-Sleep -Milliseconds 900
+    try { $warm = Get-WindowBitmap $handle; $warm.bitmap.Dispose() } catch { }
   } else {
     Add-Log "window ${width}x${height} already fits the layout this engine uses"
   }
@@ -730,9 +734,11 @@ try {
     $want = $Chat -replace '\s+', ''
     $listX = $rect.Left + [int]($width * 0.26)
     $listY = $rect.Top + [int]($height * 0.50)
-    for ($attempt = 0; $attempt -lt 4 -and -not ($header -like "*$Chat*"); $attempt++) {
+    for ($attempt = 0; $attempt -lt 6 -and -not ($header -like "*$Chat*"); $attempt++) {
       if ($attempt -gt 0) {
-        [Wx]::Wheel($listX, $listY, -360)
+        # walk the whole list, not just downwards: the target can be above the current view
+        $delta = if ($attempt % 2 -eq 1) { -360 } else { 360 }
+        [Wx]::Wheel($listX, $listY, $delta)
         Start-Sleep -Milliseconds 700
       }
       try {
@@ -779,6 +785,43 @@ try {
     }
   }
   if (-not ($header -like "*$Chat*")) {
+    # The conversation list only shows what is scrolled into view. As a last resort use
+    # WeChat's own global search (Ctrl+F, type the name, Enter) which does not depend on the
+    # list position. Nothing is closed afterwards - closing WeChat's search window can take
+    # the whole client down.
+    Enter-Stage 'open-chat-search'
+    try {
+      [void][Wx]::Focus($handle)
+      Start-Sleep -Milliseconds 250
+      [Wx]::CtrlF()
+      Start-Sleep -Milliseconds 800
+      [Wx]::SetClipboardText($Chat)
+      [Wx]::CtrlV()
+      Start-Sleep -Milliseconds 1000
+      [Wx]::Enter()
+      Start-Sleep -Milliseconds 1600
+      $found = [Wx]::FindMain()
+      if ($found -ne [IntPtr]::Zero) {
+        $handle = $found
+        $nowRect = New-Object Wx+RECT
+        [void][Wx]::GetWindowRect($handle, [ref] $nowRect)
+        $rect = $nowRect
+        $width = $nowRect.Right - $nowRect.Left
+        $height = $nowRect.Bottom - $nowRect.Top
+      }
+      $header = Get-WindowOcr $handle 0.44 0.040 0.55 0.10
+      Add-Log "header after search='$header'"
+    } catch {
+      Add-Log "open-chat-search failed: $($_.Exception.Message)"
+    }
+  }
+  if (-not ($header -like "*$Chat*")) {
+    # the very first OCR after a resize can lag behind the real layout - look once more
+    Start-Sleep -Milliseconds 900
+    $header = Get-WindowOcr $handle 0.44 0.040 0.55 0.10
+    Add-Log "header re-read='$header'"
+  }
+  if (-not ($header -like "*$Chat*")) {
     $result.stage = 'chat-not-open'
     Save-WindowShot $handle $ScreenshotOut
     $result.screenshot = $ScreenshotOut
@@ -797,15 +840,22 @@ try {
   # WeChat 4.x does not accept a CF_HDROP paste into its composer (text pastes fine), so the
   # files are selected through its own 文件夹 button and the native "选择文件" dialog.
   Enter-Stage 'open-file-dialog'
-  [Wx]::ClickInput(($rect.Left + [int]($width * 0.5906)), ($rect.Top + [int]($height * 0.9208)))
+  # the folder button is the first icon on the left of the toolbar; near-miss clicks are cheap
+  # (they land on the neighbouring tools at worst), so try a few nearby offsets before giving up
+  $folderSpots = @(@(0.5906, 0.9208), @(0.5830, 0.9165), @(0.5980, 0.9250))
   $dialog = [IntPtr]::Zero
-  $dialogSeen = $false
-  $dialogDeadline = (Get-Date).AddSeconds(6)
-  while ((Get-Date) -lt $dialogDeadline) {
-    $dialog = [Wx]::FindDialog()
+  foreach ($spot in $folderSpots) {
+    [Wx]::ClickInput(($rect.Left + [int]($width * $spot[0])), ($rect.Top + [int]($height * $spot[1])))
+    $deadline = (Get-Date).AddSeconds(3)
+    while ((Get-Date) -lt $deadline) {
+      $dialog = [Wx]::FindDialog()
+      if ($dialog -ne [IntPtr]::Zero) { break }
+      Start-Sleep -Milliseconds 200
+    }
     if ($dialog -ne [IntPtr]::Zero) { break }
-    Start-Sleep -Milliseconds 250
+    Add-Log ("no dialog after clicking $([math]::Round($spot[0],4)),$([math]::Round($spot[1],4))")
   }
+  $dialogSeen = $false
 
   if ($dialog -ne [IntPtr]::Zero) {
     $dialogSeen = $true
@@ -949,7 +999,7 @@ try {
     [Wx]::ClickInput($sendX, $sendY)
     Start-Sleep -Milliseconds 2600
     Enter-Stage 'verify-send'
-    $pane = Get-WindowOcr $handle 0.44 0.10 0.55 0.50
+    $pane = Get-WindowOcr $handle 0.44 0.10 0.55 0.58
     $composerAfter = Get-WindowOcr $handle 0.44 0.60 0.55 0.35
     Add-Log "pane='$pane' composerAfter='$composerAfter'"
     $sent = Test-AnyFileCard $pane $resolved
