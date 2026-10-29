@@ -86,6 +86,13 @@ public class Wx {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int index);
+
+  // WS_MAXIMIZE = 0x01000000 in GWL_STYLE; a maximised window is a poor target for synthetic
+  // clicks because its client area hangs off the screen and the taskbar covers its bottom edge.
+  public static bool IsMaximized(IntPtr h) {
+    return (GetWindowLong(h, -16) & 0x01000000) != 0;
+  }
   [DllImport("user32.dll")] public static extern IntPtr SetFocus(IntPtr h);
   [DllImport("user32.dll")] public static extern IntPtr SetActiveWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool attach);
@@ -146,6 +153,25 @@ public class Wx {
       EmptyClipboard();
       if (SetClipboardData(13, block) == IntPtr.Zero) { throw new Exception("SetClipboardData(CF_UNICODETEXT) failed"); }
     } finally { CloseClipboard(); }
+  }
+
+  [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr h);
+  [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr h, IntPtr dc);
+  [DllImport("gdi32.dll")] public static extern int GetDeviceCaps(IntPtr dc, int index);
+
+  /// Physical pixels per layout unit (1.0 = 100% scaling, 1.5 = 150% scaling).
+  public static double DpiScale(IntPtr h) {
+    try {
+      uint dpi = 0;
+      if (h != IntPtr.Zero) { try { dpi = GetDpiForWindow(h); } catch { dpi = 0; } }
+      if (dpi == 0) {
+        IntPtr dc = GetDC(IntPtr.Zero);
+        if (dc != IntPtr.Zero) { try { dpi = (uint)GetDeviceCaps(dc, 88); } finally { ReleaseDC(IntPtr.Zero, dc); } }
+      }
+      if (dpi < 96) { dpi = 96; }
+      return dpi / 96.0;
+    } catch { return 1.0; }
   }
 
   static Wx() { try { SetProcessDPIAware(); } catch { } }
@@ -224,6 +250,16 @@ public class Wx {
     keybd_event(0x56, 0, 0, UIntPtr.Zero);
     System.Threading.Thread.Sleep(40);
     keybd_event(0x56, 0, 2, UIntPtr.Zero);
+    System.Threading.Thread.Sleep(40);
+    keybd_event(0x11, 0, 2, UIntPtr.Zero);
+  }
+
+  public static void CtrlF() {
+    keybd_event(0x11, 0, 0, UIntPtr.Zero);
+    System.Threading.Thread.Sleep(40);
+    keybd_event(0x46, 0, 0, UIntPtr.Zero);
+    System.Threading.Thread.Sleep(40);
+    keybd_event(0x46, 0, 2, UIntPtr.Zero);
     System.Threading.Thread.Sleep(40);
     keybd_event(0x11, 0, 2, UIntPtr.Zero);
   }
@@ -370,6 +406,9 @@ function Get-NameKey([string] $value) {
 }
 
 function Get-SizeToken([long] $bytes) {
+  # WeChat labels small files in bytes ("42B"), larger ones as "410K" / "1.2M" and anything
+  # past a megabyte as "1.2M", so the token has to follow the same three shapes
+  if ($bytes -lt 1024) { return ('{0}B' -f $bytes) }
   if ($bytes -ge 1048576) { return ('{0:0.0}M' -f ($bytes / 1048576.0)) }
   return ('{0:0.0}K' -f ($bytes / 1024.0))
 }
@@ -442,10 +481,68 @@ function Get-RegionGrid([System.Drawing.Bitmap] $bitmap, [double] $left, [double
 function Get-ComposerGrid([IntPtr] $handle) {
   $shot = Get-WindowBitmap $handle
   try {
-    return Get-RegionGrid $shot.bitmap 0.44 0.60 0.55 0.35
+    return Get-RegionGrid $shot.bitmap $script:layComposerLeft $script:layComposerTop $script:layComposerWidth $script:layComposerHeight
   } finally {
     $shot.bitmap.Dispose()
   }
+}
+
+# WeChat 4 keeps a constant-width rail + conversation list on the left and glues the composer and
+# its toolbar to the bottom edge. Positioning everything by width/height ratios drifts as soon as
+# the window is not about 1000 px wide, so each region is derived from those fixed offsets, scaled
+# by the window DPI.
+function Update-Layout([IntPtr] $handle) {
+  $scale = [Wx]::DpiScale($handle)
+  if ($scale -lt 1) { $scale = 1.0 }
+  $w = [Math]::Max(1, $width)
+  $h = [Math]::Max(1, $height)
+
+  # start the OCR regions a little left of the rail's edge: cropping into the first glyph of the
+  # chat title made the recogniser read 文件传输助手 as 乙牛传输助手, which then looked like a
+  # wrong chat. Extra columns are harmless because only the recognised text is compared.
+  $left = [Math]::Max(0.0, [Math]::Min(0.45, (306.7 * $scale - 24.0) / $w))
+  $script:layLeft = $left
+  $script:layWidth = 1.0 - $left
+
+  $script:layHeaderTop = (39.0 * $scale) / $h
+  $script:layHeaderHeight = (31.0 * $scale) / $h
+
+  $composerBottomPx = 20.7 * $scale
+  $composerHeightPx = 130.0 * $scale
+  $script:layComposerLeft = $left
+  $script:layComposerWidth = $script:layWidth
+  $script:layComposerTop = [Math]::Max(0.2, ($h - $composerBottomPx - $composerHeightPx) / $h)
+  $script:layComposerHeight = [Math]::Min(0.8, $composerHeightPx / $h)
+
+  $paneTop = [Math]::Min(0.5, $script:layHeaderTop + $script:layHeaderHeight + 0.01)
+  $script:layPaneLeft = $left
+  $script:layPaneWidth = $script:layWidth
+  $script:layPaneTop = $paneTop
+  $script:layPaneHeight = [Math]::Max(0.05, $script:layComposerTop - $paneTop)
+
+  # the conversation list occupies a constant band between the icon rail and the rail's right edge;
+  # chat titles never start left of the rail or right of the list's end (the header starts after it)
+  $script:layListLeft = [int](70.0 * $scale)
+  $script:layListRight = [int](303.3 * $scale)
+  $script:layListTop = [int](($script:layHeaderTop + $script:layHeaderHeight) * $h)
+
+  $script:layFolderX = [int](372.7 * $scale)
+  $script:layToolbarY = [int]($h - 42.0 * $scale)
+  $script:laySendX = [int]($w - 56.0 * $scale)
+  $script:layComposerY = [int]($h - $composerBottomPx - ($composerHeightPx / 2.0))
+
+  Add-Log ("layout scale={0} left={1:0.###} composerTop={2:0.###} composerH={3:0.###} paneTop={4:0.###} paneH={5:0.###}" -f $scale, $left, $script:layComposerTop, $script:layComposerHeight, $script:layPaneTop, $script:layPaneHeight)
+}
+
+# CopyFromScreen can hand back the previous frame right after the window is raised, which used to
+# turn a perfectly good chat into 'chat-not-open'. Read the header a few times before believing it.
+function Read-Header([IntPtr] $handle) {
+  for ($i = 0; $i -lt 3; $i++) {
+    $text = Get-WindowOcr $handle $script:layLeft $script:layHeaderTop $script:layWidth $script:layHeaderHeight
+    if ($text) { return $text }
+    if ($i -lt 2) { Start-Sleep -Milliseconds 260 }
+  }
+  return ''
 }
 
 function Test-GridChanged($before, $after, [int] $threshold = 14, [double] $minRatio = 0.06) {
@@ -461,7 +558,7 @@ function Test-GridChanged($before, $after, [int] $threshold = 14, [double] $minR
 function Get-PaneGrid([IntPtr] $handle) {
   $shot = Get-WindowBitmap $handle
   try {
-    return Get-RegionGrid $shot.bitmap 0.44 0.10 0.55 0.58
+    return Get-RegionGrid $shot.bitmap $script:layPaneLeft $script:layPaneTop $script:layPaneWidth $script:layPaneHeight
   } finally {
     $shot.bitmap.Dispose()
   }
@@ -671,29 +768,48 @@ try {
     exit 0
   }
 
-  # The 📁 button, the 发送 button and the composer only sit where this engine looks them up
-  # when the window is close to WeChat's default size (~1020x740). A maximised or heavily
-  # shrunk window breaks that, so resize it for this run and put it back at the end.
+  # The layout is anchored to WeChat's fixed pixel rails, so any reasonably sized window works.
+  # Only two cases need help: a window too small to hold the composer, and a maximised one, whose
+  # client area hangs off the screen and swallows synthetic clicks on the bottom edge.
   Enter-Stage 'normalize-window'
   $script:restoreHandle = $handle
-  $targetW = 1020
-  $targetH = 740
+  $targetW = 0
+  $targetH = 0
   $newX = [Math]::Max(0, $rect.Left)
   $newY = [Math]::Max(0, $rect.Top)
-  try {
-    $vs = [System.Windows.Forms.SystemInformation]::VirtualScreen
-    if ($vs.Width -gt 0 -and $vs.Height -gt 0) {
-      $targetW = [Math]::Max(880, [Math]::Min($targetW, $vs.Width - 80))
-      $targetH = [Math]::Max(620, [Math]::Min($targetH, $vs.Height - 80))
-      $newX = [Math]::Max($vs.Left, [Math]::Min($rect.Left, $vs.Left + $vs.Width - $targetW - 20))
-      $newY = [Math]::Max($vs.Top, [Math]::Min($rect.Top, $vs.Top + $vs.Height - $targetH - 20))
-    }
-  } catch {
-    Add-Log "screen metrics unavailable: $($_.Exception.Message)"
-  }
-  if ([Math]::Abs($width - $targetW) -gt 40 -or [Math]::Abs($height - $targetH) -gt 40) {
+  $minW = [int](880 * [Wx]::DpiScale($handle))
+  $minH = [int](620 * [Wx]::DpiScale($handle))
+  if ($width -lt $minW -or $height -lt $minH) {
+    $targetW = [Math]::Max($minW, 1020)
+    $targetH = [Math]::Max($minH, 740)
+  } elseif ([Wx]::IsMaximized($handle)) {
     $script:restoreRect = @{ x = $rect.Left; y = $rect.Top; w = $width; h = $height }
-    Add-Log "window ${width}x${height} is off-layout, resizing to ${targetW}x${targetH} at $newX,$newY"
+    Add-Log "window is maximised (${width}x${height}), restoring it for this run"
+    [void][Wx]::ShowWindow($handle, 9)
+    Start-Sleep -Milliseconds 700
+    $restored = New-Object Wx+RECT
+    [void][Wx]::GetWindowRect($handle, [ref] $restored)
+    $rect = $restored
+    $width = $restored.Right - $restored.Left
+    $height = $restored.Bottom - $restored.Top
+    Add-Log "window is now ${width}x${height} after restore"
+    Start-Sleep -Milliseconds 900
+    try { $warm = Get-WindowBitmap $handle; $warm.bitmap.Dispose() } catch { }
+  }
+  if ($targetW -gt 0 -or $targetH -gt 0) {
+    try {
+      $vs = [System.Windows.Forms.SystemInformation]::VirtualScreen
+      if ($vs.Width -gt 0 -and $vs.Height -gt 0) {
+        $targetW = [Math]::Max(880, [Math]::Min($targetW, $vs.Width - 80))
+        $targetH = [Math]::Max(620, [Math]::Min($targetH, $vs.Height - 80))
+        $newX = [Math]::Max($vs.Left, [Math]::Min($rect.Left, $vs.Left + $vs.Width - $targetW - 20))
+        $newY = [Math]::Max($vs.Top, [Math]::Min($rect.Top, $vs.Top + $vs.Height - $targetH - 20))
+      }
+    } catch {
+      Add-Log "screen metrics unavailable: $($_.Exception.Message)"
+    }
+    if (-not $script:restoreRect) { $script:restoreRect = @{ x = $rect.Left; y = $rect.Top; w = $width; h = $height } }
+    Add-Log "window ${width}x${height} is too small, resizing to ${targetW}x${targetH} at $newX,$newY"
     [void][Wx]::SetWindowPos($handle, [IntPtr]::Zero, $newX, $newY, $targetW, $targetH, 0x0004)
     Start-Sleep -Milliseconds 700
     $nowRect = New-Object Wx+RECT
@@ -707,8 +823,9 @@ try {
     Start-Sleep -Milliseconds 900
     try { $warm = Get-WindowBitmap $handle; $warm.bitmap.Dispose() } catch { }
   } else {
-    Add-Log "window ${width}x${height} already fits the layout this engine uses"
+    Add-Log "window ${width}x${height} is fine for the fixed layout, leaving it alone"
   }
+  Update-Layout $handle
   $result.window = [ordered]@{
     hwnd = [int64]$handle; title = [Wx]::Title($handle); visible = [Wx]::IsWindowVisible($handle)
     rect = [ordered]@{ x = $rect.Left; y = $rect.Top; width = $width; height = $height }
@@ -725,7 +842,7 @@ try {
     $result.stage = 'ocr-unavailable'
     throw 'OCR is unavailable, refusing to paste without verification'
   }
-  $header = Get-WindowOcr $handle 0.44 0.040 0.55 0.10
+  $header = Read-Header $handle
   Add-Log "header='$header'"
   if (-not ($header -like "*$Chat*")) {
     # Try to select the chat from the conversation list. Clicking a row only switches the
@@ -746,8 +863,8 @@ try {
         try { $lines = Get-OcrLines $shot.bitmap } finally { $shot.bitmap.Dispose() }
         $candidates = @($lines | Where-Object {
             (($_.text -replace '\s+', '') -like "*$want*") -and
-            ($_.x -gt ($width * 0.08)) -and ($_.x -lt ($width * 0.46)) -and
-            ($_.y -gt ($height * 0.08))
+            ($_.x -ge $script:layListLeft) -and ($_.x -lt $script:layListRight) -and
+            ($_.y -gt $script:layListTop)
           })
         if ($candidates.Count -gt 0) {
           # Two rows with the same display name cannot be told apart by OCR, and the header
@@ -756,7 +873,7 @@ try {
           foreach ($candidate in $candidates) {
             $sameRow = $false
             foreach ($row in $rows) {
-              if ([Math]::Abs($row.y - $candidate.y) -lt 24) { $sameRow = $true; break }
+              if ([Math]::Abs($row.y - $candidate.y) -lt 40) { $sameRow = $true; break }
             }
             if (-not $sameRow) { $rows += $candidate }
           }
@@ -774,7 +891,7 @@ try {
           Add-Log "clicking chat row at $tx,$ty ('$($target.text)')"
           [Wx]::ClickInput($tx, $ty)
           Start-Sleep -Milliseconds 1300
-          $header = Get-WindowOcr $handle 0.44 0.040 0.55 0.10
+          $header = Read-Header $handle
           Add-Log "header after row click='$header'"
         } else {
           Add-Log "attempt $attempt : target chat row not visible"
@@ -808,8 +925,9 @@ try {
         $rect = $nowRect
         $width = $nowRect.Right - $nowRect.Left
         $height = $nowRect.Bottom - $nowRect.Top
+        Update-Layout $handle
       }
-      $header = Get-WindowOcr $handle 0.44 0.040 0.55 0.10
+      $header = Read-Header $handle
       Add-Log "header after search='$header'"
     } catch {
       Add-Log "open-chat-search failed: $($_.Exception.Message)"
@@ -818,7 +936,7 @@ try {
   if (-not ($header -like "*$Chat*")) {
     # the very first OCR after a resize can lag behind the real layout - look once more
     Start-Sleep -Milliseconds 900
-    $header = Get-WindowOcr $handle 0.44 0.040 0.55 0.10
+    $header = Read-Header $handle
     Add-Log "header re-read='$header'"
   }
   if (-not ($header -like "*$Chat*")) {
@@ -831,7 +949,7 @@ try {
   }
 
   Enter-Stage 'click-composer'
-  [Wx]::ClickInput(($rect.Left + [int]($width * 0.55)), ($rect.Top + [int]($height * 0.72)))
+  [Wx]::ClickInput(($rect.Left + [int]($width * 0.55)), ($rect.Top + $script:layComposerY))
   Start-Sleep -Milliseconds 350
   # empty-composer reference, used to recognise image cards that OCR cannot read
   $composerEmpty = $null
@@ -840,12 +958,16 @@ try {
   # WeChat 4.x does not accept a CF_HDROP paste into its composer (text pastes fine), so the
   # files are selected through its own 文件夹 button and the native "选择文件" dialog.
   Enter-Stage 'open-file-dialog'
-  # the folder button is the first icon on the left of the toolbar; near-miss clicks are cheap
-  # (they land on the neighbouring tools at worst), so try a few nearby offsets before giving up
-  $folderSpots = @(@(0.5906, 0.9208), @(0.5830, 0.9165), @(0.5980, 0.9250))
+  # the folder icon sits at a fixed offset from the window's left edge, in the toolbar row that is
+  # glued to the bottom; nearby offsets are tried because a near miss only hits a neighbouring tool
+  $folderSpots = @(
+    @($script:layFolderX, $script:layToolbarY),
+    @(($script:layFolderX - 10), ($script:layToolbarY - 4)),
+    @(($script:layFolderX + 12), ($script:layToolbarY + 4))
+  )
   $dialog = [IntPtr]::Zero
   foreach ($spot in $folderSpots) {
-    [Wx]::ClickInput(($rect.Left + [int]($width * $spot[0])), ($rect.Top + [int]($height * $spot[1])))
+    [Wx]::ClickInput(($rect.Left + $spot[0]), ($rect.Top + $spot[1]))
     $deadline = (Get-Date).AddSeconds(3)
     while ((Get-Date) -lt $deadline) {
       $dialog = [Wx]::FindDialog()
@@ -853,7 +975,7 @@ try {
       Start-Sleep -Milliseconds 200
     }
     if ($dialog -ne [IntPtr]::Zero) { break }
-    Add-Log ("no dialog after clicking $([math]::Round($spot[0],4)),$([math]::Round($spot[1],4))")
+    Add-Log ("no dialog after clicking offset $($spot[0]),$($spot[1])")
   }
   $dialogSeen = $false
 
@@ -888,7 +1010,7 @@ try {
     Start-Sleep -Milliseconds 1900
 
     Enter-Stage 'verify-paste'
-    $composer = Get-WindowOcr $handle 0.44 0.60 0.55 0.35
+    $composer = Get-WindowOcr $handle $script:layComposerLeft $script:layComposerTop $script:layComposerWidth $script:layComposerHeight
     Add-Log "composer='$composer'"
     $seen = Test-AnyFileCard $composer $resolved
     if ($seen -eq 0) {
@@ -904,7 +1026,7 @@ try {
     if ($seen -eq 0) {
       # retry only when the dialog is gone but nothing landed in the composer
       Add-Log 'files not visible after the dialog, retrying once'
-      [Wx]::ClickInput(($rect.Left + [int]($width * 0.5906)), ($rect.Top + [int]($height * 0.9208)))
+      [Wx]::ClickInput(($rect.Left + $script:layFolderX), ($rect.Top + $script:layToolbarY))
       Start-Sleep -Milliseconds 1800
       $dialog2 = [Wx]::FindDialog()
       if ($dialog2 -ne [IntPtr]::Zero) {
@@ -920,7 +1042,7 @@ try {
         Start-Sleep -Milliseconds 900
         [Wx]::Enter()
         Start-Sleep -Milliseconds 2900
-        $composer = Get-WindowOcr $handle 0.44 0.60 0.55 0.35
+        $composer = Get-WindowOcr $handle $script:layComposerLeft $script:layComposerTop $script:layComposerWidth $script:layComposerHeight
         Add-Log "composer after retry='$composer'"
         $seen = Test-AnyFileCard $composer $resolved
         if ($seen -eq 0) {
@@ -942,7 +1064,7 @@ try {
     [Wx]::CtrlV()
     Start-Sleep -Milliseconds 1800
     Enter-Stage 'verify-paste'
-    $composer = Get-WindowOcr $handle 0.44 0.60 0.55 0.35
+    $composer = Get-WindowOcr $handle $script:layComposerLeft $script:layComposerTop $script:layComposerWidth $script:layComposerHeight
     Add-Log "composer='$composer'"
     $seen = Test-AnyFileCard $composer $resolved
     if ($seen -eq 0) {
@@ -979,8 +1101,8 @@ try {
   if ($AutoSend) {
     Enter-Stage 'send'
     # the send button turns green once the composer holds something
-    $sendX = $rect.Left + [int]($width * 0.915)
-    $sendY = $rect.Top + [int]($height * 0.921)
+    $sendX = $rect.Left + $script:laySendX
+    $sendY = $rect.Top + $script:layToolbarY
     $green = $false
     try {
       $probe = New-Object System.Drawing.Bitmap 1, 1
@@ -999,8 +1121,8 @@ try {
     [Wx]::ClickInput($sendX, $sendY)
     Start-Sleep -Milliseconds 2600
     Enter-Stage 'verify-send'
-    $pane = Get-WindowOcr $handle 0.44 0.10 0.55 0.58
-    $composerAfter = Get-WindowOcr $handle 0.44 0.60 0.55 0.35
+    $pane = Get-WindowOcr $handle $script:layPaneLeft $script:layPaneTop $script:layPaneWidth $script:layPaneHeight
+    $composerAfter = Get-WindowOcr $handle $script:layComposerLeft $script:layComposerTop $script:layComposerWidth $script:layComposerHeight
     Add-Log "pane='$pane' composerAfter='$composerAfter'"
     $sent = Test-AnyFileCard $pane $resolved
     $composerChanged = $false
