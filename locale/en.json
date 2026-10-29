@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "WeChat Transfer",
-    "description": "Send files to WeChat (default: File Transfer Assistant)"
+    "description": "Send files to WeChat (default: File Transfer Assistant); handy when DSH runs remotely - pick the files up on your phone"
   },
   "panel": {
     "title": "WeChat Transfer",
