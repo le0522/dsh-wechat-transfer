@@ -768,7 +768,11 @@ try {
   # The login window is much smaller than the main window and shows either an avatar with a
   # 「进入微信」 button or a QR code. Only the button case can be automated.
   $loginRound = 0
-  while (($width -lt 700 -or $height -lt 500) -and $loginRound -lt 3 -and $rect.Left -gt -10000) {
+  # WeChat 4.2's *smallest main window* is 658x677 on a 150% display, so a plain 700px width test
+  # mistook it for the login window and refused to work. Only a login window (442x581 here) is
+  # narrow enough to be handled automatically; anything wider is treated as the main window and
+  # left to normalize-window.
+  while (($width -lt 560 -or $height -lt 480) -and $loginRound -lt 3 -and $rect.Left -gt -10000) {
     $loginRound++
     Enter-Stage 'login'
     if (-not $script:ocrOk) {
@@ -802,6 +806,10 @@ try {
       $result.error = 'WeChat wants a QR scan; scan it on the phone and retry'
       Write-Result $result
       exit 12
+    } elseif (($loginText -replace '\s+', '') -match '搜索|发送|文件传输助手') {
+      # main UI, just a small window - normalize-window will enlarge it
+      Add-Log "window ${width}x${height} is not a login window, carrying on"
+      break
     } else {
       $bx = $rect.Left + [int]($width * 0.5)
       $by = $rect.Top + [int]($height * 0.74)
@@ -828,7 +836,7 @@ try {
       }
     }
   }
-  if ($width -lt 700 -or $height -lt 500) {
+  if ($width -lt 560 -or $height -lt 480) {
     $result.stage = 'login-required'
     Save-WindowShot $handle $ScreenshotOut
     $result.screenshot = $ScreenshotOut
