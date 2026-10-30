@@ -537,9 +537,37 @@ function Update-Layout([IntPtr] $handle) {
 
 # CopyFromScreen can hand back the previous frame right after the window is raised, which used to
 # turn a perfectly good chat into 'chat-not-open'. Read the header a few times before believing it.
+function Get-WindowOcrRect([IntPtr] $handle, [int] $x, [int] $y, [int] $cropWidth, [int] $cropHeight) {
+  $shot = Get-WindowBitmap $handle
+  try {
+    if (-not $script:ocrOk) { return '' }
+    $crop = New-Object System.Drawing.Bitmap $cropWidth, $cropHeight
+    $g = [System.Drawing.Graphics]::FromImage($crop)
+    try {
+      $g.DrawImage($shot.bitmap, (New-Object System.Drawing.Rectangle 0, 0, $cropWidth, $cropHeight), (New-Object System.Drawing.Rectangle $x, $y, $cropWidth, $cropHeight), [System.Drawing.GraphicsUnit]::Pixel)
+    } finally { $g.Dispose() }
+    try { $ocrLines = Get-OcrLines $crop } finally { $crop.Dispose() }
+    return (($ocrLines | ForEach-Object { $_.text -replace '\s+', '' }) -join '|')
+  } finally { $shot.bitmap.Dispose() }
+}
+
 function Read-Header([IntPtr] $handle) {
+  # The Windows recogniser returns nothing for very wide, very short strips - and a large WeChat
+  # window turns this crop into exactly that shape (965x47 returned 0 lines, 900x70 worked), which
+  # is why the chat looked 'not open' after WeChat 4.2 opened a bigger window. Keep the strip at
+  # least 72 px tall and at most 760 px wide; the chat title always sits at its left edge.
+  $w = [Math]::Max(1, $width)
+  $h = [Math]::Max(1, $height)
+  $x = [int]($script:layLeft * $w)
+  $y = [int]($script:layHeaderTop * $h)
+  if ($x -lt 0) { $x = 0 }
+  if ($y -lt 0) { $y = 0 }
+  $cropWidth = [Math]::Min(760, $w - $x)
+  $cropHeight = [Math]::Max(72, [int]($script:layHeaderHeight * $h))
+  if (($y + $cropHeight) -gt $h) { $cropHeight = $h - $y }
+  if ($cropWidth -lt 40 -or $cropHeight -lt 40) { return '' }
   for ($i = 0; $i -lt 3; $i++) {
-    $text = Get-WindowOcr $handle $script:layLeft $script:layHeaderTop $script:layWidth $script:layHeaderHeight
+    $text = Get-WindowOcrRect $handle $x $y $cropWidth $cropHeight
     if ($text) { return $text }
     if ($i -lt 2) { Start-Sleep -Milliseconds 260 }
   }
@@ -722,11 +750,25 @@ try {
   }
   Add-Log "window $handle '$([Wx]::Title($handle))' ${width}x${height}"
 
+  # A minimised window reports a huge negative origin and a tiny rect (WeChat 4.2 keeps the real
+  # geometry only while it is shown), so OCR and clicks would both land nowhere. Bring it back and
+  # re-read the geometry before anything else looks at the window.
+  if ($rect.Left -le -10000 -or $rect.Top -le -10000) {
+    Add-Log 'window is minimised, restoring it'
+    [void][Wx]::ShowWindow($handle, 9)
+    Start-Sleep -Milliseconds 700
+    [void][Wx]::GetWindowRect($handle, [ref] $rect)
+    $width = $rect.Right - $rect.Left
+    $height = $rect.Bottom - $rect.Top
+    $result.window.rect = [ordered]@{ x = $rect.Left; y = $rect.Top; width = $width; height = $height }
+    Add-Log "window restored to ${width}x${height}"
+  }
+
   # ---------------------------------------------------------------- login
   # The login window is much smaller than the main window and shows either an avatar with a
   # 「进入微信」 button or a QR code. Only the button case can be automated.
   $loginRound = 0
-  while (($width -lt 700 -or $height -lt 500) -and $loginRound -lt 3) {
+  while (($width -lt 700 -or $height -lt 500) -and $loginRound -lt 3 -and $rect.Left -gt -10000) {
     $loginRound++
     Enter-Stage 'login'
     if (-not $script:ocrOk) {
